@@ -1,30 +1,40 @@
 from datetime import datetime
 
-BASE_PATH = "/Volumes/<catalog>/<schema>/<volume>/your-folder"
+BASE_PATH = "dbfs:/path/to/your/folder"   # <-- update this
 
-files = dbutils.fs.ls(BASE_PATH)
+folders = dbutils.fs.ls(BASE_PATH)
 
 results = []
 
-for f in files:
-    # 1. Format timestamp
+for f in folders:
+    # Skip files — we only want directories
+    if not f.path.endswith("/"):
+        continue
+
+    # Format timestamp
     ts = datetime.fromtimestamp(f.modificationTime / 1000).strftime("%m/%d/%Y %H:%M:%S")
 
-    # 2. Look for logs inside this path
-    init_hits = []
-    for logname in ["stdout.log", "stderr.log"]:
-        log_path = f"{f.path.rstrip('/')}/{logname}"
+    # Look for log files inside this folder
+    logs = dbutils.fs.ls(f.path)
+    log_files = [lf.path for lf in logs if lf.path.endswith("stderr.log") or lf.path.endswith("stdout.log")]
+
+    found = False
+    matched_logs = []
+
+    for log_path in log_files:
         try:
             content = dbutils.fs.head(log_path, 50000)  # read first 50 KB
-            if "init_volume" in content:
-                init_hits.append(logname)
-        except Exception:
-            pass  # log file may not exist
+            if "init_r_volume" in content:
+                found = True
+                matched_logs.append(log_path)
+        except:
+            pass  # ignore missing/unreadable logs
 
-    results.append({
-        "path": f.path,
-        "timestamp": ts,
-        "init_volume_found_in": init_hits
-    })
+    if found:
+        results.append({
+            "folder": f.path,
+            "timestamp": ts,
+            "logs_with_match": matched_logs
+        })
 
 results
